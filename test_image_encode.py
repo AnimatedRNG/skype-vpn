@@ -92,31 +92,29 @@ def main():
         virtual_size = (2, 2)
         out = cv2.VideoWriter('test.avi', cv2.VideoWriter_fourcc(
             'X', '2', '6', '4'), 15, actual_size)
-        last_frame = np.zeros(
-            (actual_size[1], actual_size[0], 3), dtype=np.uint8)
         while True:
             frame, dp = encode_frame(data, virtual_size, actual_size)
-            for i in range(1, pi_frames + 1):
+            for i in range(pi_frames):
                 print("New frame")
-                interp = frame * (i / 5) + last_frame * ((5 - i) / 5)
-                out.write(interp.astype(np.uint8))
+                out.write(frame)
             if dp >= len(data):
                 break
             data = data[dp:]
-            last_frame = frame
         out.release()
 
         cap = cv2.VideoCapture('test.avi')
 
         reconstructed_data = np.zeros((total_data_length,), dtype=np.uint8)
         dp = 0
-        while (cap.isOpened()):
-            ret, frame = cap.read()
-            for i in range(pi_frames - 1):
-                cap.read()
-            cv2.imshow('frame', frame)
-            cv2.waitKey(0)
+        i = 0
 
+        if cap.isOpened():
+            for i in range(pi_frames // 2):
+                ret, frame = cap.read()
+
+        while (cap.isOpened()):
+            cv2.imshow(frame)
+            cv2.waitKey(0)
             data_frame = decode_frame(frame, virtual_size)
             end_ptr = dp + data_frame.size
             print(dp, end_ptr, data_frame.size)
@@ -127,6 +125,9 @@ def main():
                     reconstructed_data) - dp]
                 break
             dp = end_ptr
+
+            for i in range(pi_frames - 1):
+                ret, frame = cap.read()
         with open('output.txt', 'w') as output_fp:
             output_fp.write(reconstructed_data.tostring().decode('ascii'))
         print(sum(abs(reconstructed_data - original_data)))
