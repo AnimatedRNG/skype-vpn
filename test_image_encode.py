@@ -4,6 +4,18 @@ import numpy as np
 import cv2
 
 
+def encode_pixel(datum):
+    #value = (datum // 4) * 4
+    #hue = int((datum % 4) * (180 / 4))
+    # return (value, hue)
+    return (datum, 50)
+
+
+def decode_pixel(value, hue):
+    # return int(round(value + hue / (180 / 4)))
+    return value
+
+
 def encode_frame(data, virtual_resolution, actual_resolution):
     indices = (actual_resolution[0] / virtual_resolution[0],
                actual_resolution[1] / virtual_resolution[1])
@@ -18,11 +30,10 @@ def encode_frame(data, virtual_resolution, actual_resolution):
             vx = int(ix * indices[0])
             vy = int(iy * indices[1])
             datum = data[data_index]
-            value = (datum // 8) * 8
-            hue = (datum % 6) * 32
+            value, hue = encode_pixel(datum)
 
             img[vy:int(vy+indices[1]), vx:int(vx+indices[0]), 0] = hue
-            img[vy:int(vy+indices[1]), vx:int(vx+indices[0]), 1] = 255
+            img[vy:int(vy+indices[1]), vx:int(vx+indices[0]), 1] = 128
             img[vy:int(vy+indices[1]), vx:int(vx+indices[0]), 2] = value
 
             data_index += 1
@@ -53,22 +64,22 @@ def decode_frame(frame, virtual_resolution):
             vx_1 = min(vx+int(indices[0]), actual_resolution[1] - 1)
             vy_1 = min(vy+int(indices[1]), actual_resolution[0] - 1)
             patch = hsv_frame[vy:vy_1, vx:vx_1]
-            print(vx, vy, vx_1, vy_1)
-            print(patch.shape)
-            cv2.imshow('frame', cv2.cvtColor(hsv_frame, cv2.COLOR_HSV2BGR))
-            cv2.imshow('patch', cv2.cvtColor(patch, cv2.COLOR_HSV2BGR))
-            cv2.waitKey(0)
+            #print(vx, vy, vx_1, vy_1)
+            # print(patch.shape)
+            #cv2.imshow('frame', cv2.cvtColor(hsv_frame, cv2.COLOR_HSV2BGR))
+            #cv2.imshow('patch', cv2.cvtColor(patch, cv2.COLOR_HSV2BGR))
+            # cv2.waitKey(0)
             avg_color = np.sum(patch, axis=(0, 1)) \
                 / (indices[0] * indices[1])
-            print("{} vs {}".format(avg_color, hsv_frame[vy+5, vx+5]))
-            (hue, _, value) = avg_color
-            datum = int(round(value + min(hue / 32, 5)))
+            #print("{} vs {}".format(avg_color, hsv_frame[vy+5, vx+5]))
+            (hue, test, value) = avg_color
+            datum = decode_pixel(value, hue)
             data[data_index] = datum
             data_index += 1
     return data
 
 
-if __name__ == '__main__':
+def main():
     with open('data.txt', 'r') as fp:
         data = fp.read().encode('ascii')
         original_data = np.frombuffer(data[:], dtype=np.uint8)
@@ -76,7 +87,7 @@ if __name__ == '__main__':
         dp = 0
 
         actual_size = (1920, 1080)
-        virtual_size = (6, 4)
+        virtual_size = (2, 2)
         out = cv2.VideoWriter('test.avi', cv2.VideoWriter_fourcc(
             'X', '2', '6', '4'), 15, actual_size)
         while True:
@@ -109,3 +120,9 @@ if __name__ == '__main__':
         with open('output.txt', 'w') as output_fp:
             output_fp.write(reconstructed_data.tostring().decode('ascii'))
         print(sum(abs(reconstructed_data - original_data)))
+
+
+if __name__ == '__main__':
+    for i in range(256):
+        assert(i == decode_pixel(*encode_pixel(i)))
+    main()
