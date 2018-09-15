@@ -37,10 +37,10 @@ def decode_frame(frame, virtual_resolution):
     hsv_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
     actual_resolution = frame.shape[:2]
-    indices = (actual_resolution[0] / virtual_resolution[0],
-               actual_resolution[1] / virtual_resolution[1])
+    indices = (actual_resolution[1] / virtual_resolution[0],
+               actual_resolution[0] / virtual_resolution[1])
     print("actual_resolution: {}".format(actual_resolution))
-    img = np.zeros((actual_resolution[1], actual_resolution[0], 3),
+    img = np.zeros((actual_resolution[0], actual_resolution[1], 3),
                    dtype=np.uint8)
     data_index = 0
 
@@ -50,9 +50,9 @@ def decode_frame(frame, virtual_resolution):
         for iy in range(0, virtual_resolution[1]):
             vx = int(ix * indices[0])
             vy = int(iy * indices[1])
-            vx_1 = min(vx+int(indices[0]), actual_resolution[0] - 1)
-            vy_1 = min(vy+int(indices[1]), actual_resolution[1] - 1)
-            patch = hsv_frame[vx:vx_1, vy:vy_1]
+            vx_1 = min(vx+int(indices[0]), actual_resolution[1] - 1)
+            vy_1 = min(vy+int(indices[1]), actual_resolution[0] - 1)
+            patch = hsv_frame[vy:vy_1, vx:vx_1]
             print(vx, vy, vx_1, vy_1)
             print(patch.shape)
             cv2.imshow('frame', cv2.cvtColor(hsv_frame, cv2.COLOR_HSV2BGR))
@@ -96,8 +96,7 @@ if __name__ == '__main__':
         while (cap.isOpened()):
             ret, frame = cap.read()
 
-            data_frame = decode_frame(np.swapaxes(
-                frame, 0, 1), virtual_size)
+            data_frame = decode_frame(frame, virtual_size)
             end_ptr = dp + data_frame.size
             print(dp, end_ptr, data_frame.size)
             if end_ptr < total_data_length:
