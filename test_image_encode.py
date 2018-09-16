@@ -6,7 +6,7 @@ import cv2
 pi_frames = 3
 
 actual_size = (1920, 1080)
-virtual_size = (2, 2)
+virtual_size = (4, 4)
 
 
 def encode_pixel(datum):
@@ -72,7 +72,8 @@ def encode_frame(data, virtual_resolution, actual_resolution):
         for iy in range(0, virtual_resolution[1], 2):
             if data_index >= len(data):
                 break
-            datums = data[data_index] // 16, data[data_index + 1] % 16
+            print("data[{}] = {}".format(data_index, data[data_index]))
+            datums = data[data_index] // 16, data[data_index] % 16
             for i, datum in enumerate(datums):
                 vx = int(ix * indices[0])
                 vy = int((iy + i) * indices[1])
@@ -83,12 +84,12 @@ def encode_frame(data, virtual_resolution, actual_resolution):
                                                   indices[0]), 1] = saturation
                 img[vy:int(vy+indices[1]), vx:int(vx+indices[0]), 2] = value
 
-                if data_index < 50:
+                '''if data_index < 50:
                     print("Vx: {}, vy: {}".format(vx, vy))
                     print("{}: {} {} {} {}".format(
-                        data_index, value, saturation, hue, datum))
+                        data_index, value, saturation, hue, datum))'''
 
-            data_index += 2
+            data_index += 1
     rgb = cv2.cvtColor(img, cv2.COLOR_HSV2BGR)
     # cv2.imshow('rgb', rgb)
     # cv2.waitKey(10000)
@@ -102,13 +103,12 @@ def decode_frame(frame, virtual_resolution):
     actual_resolution = frame.shape[:2]
     indices = (actual_resolution[1] / virtual_resolution[0],
                actual_resolution[0] / virtual_resolution[1])
-    print("actual_resolution: {}".format(actual_resolution))
     img = np.zeros((actual_resolution[0], actual_resolution[1], 3),
                    dtype=np.uint8)
     data_index = 0
 
     data = np.zeros(
-        (virtual_resolution[0] * virtual_resolution[1],), dtype=np.uint8)
+        ((virtual_resolution[0] * virtual_resolution[1]) // 2,), dtype=np.uint8)
     for ix in range(0, virtual_resolution[0]):
         for iy in range(0, virtual_resolution[1], 2):
             datums = []
@@ -118,26 +118,27 @@ def decode_frame(frame, virtual_resolution):
                 vx_1 = min(vx+int(indices[0]), actual_resolution[1] - 1)
                 vy_1 = min(vy+int(indices[1]), actual_resolution[0] - 1)
                 patch = hsv_frame[vy:vy_1, vx:vx_1]
-                print(vx, vy, vx_1, vy_1)
-                print(patch.shape)
+                #print(vx, vy, vx_1, vy_1)
+                # print(patch.shape)
                 #cv2.imshow('frame', cv2.cvtColor(hsv_frame, cv2.COLOR_HSV2BGR))
                 #cv2.imshow('patch', cv2.cvtColor(patch, cv2.COLOR_HSV2BGR))
                 # cv2.waitKey(0)
                 avg_color = np.sum(patch.astype(np.int32), axis=(0, 1)) \
                     / (indices[0] * indices[1])
-                print("{} vs {}".format(avg_color, hsv_frame[vy+5, vx+5]))
+                #print("{} vs {}".format(avg_color, hsv_frame[vy+5, vx+5]))
                 (hue, saturation, value) = np.round(avg_color).astype(np.uint8)
                 dt_val = decode_pixel(value, saturation, hue)
                 datums.append(dt_val)
 
-                if data_index < 50:
+                '''if data_index < 50:
                     print("Vx: {}, vy: {}".format(vx, vy))
                     print("{}: {} {} {} {}".format(
-                        data_index, value, saturation, hue, dt_val))
+                        data_index, value, saturation, hue, dt_val))'''
             datum = datums[0] * 16 + datums[1]
             data[data_index] = datum
+            print("data[{}] = {}".format(data_index, data[data_index]))
 
-            data_index += 2
+            data_index += 1
     return data
 
 
@@ -167,7 +168,7 @@ def decode_video(cap, data_length):
             ret, frame = cap.read()
 
     while (cap.isOpened()):
-        # cv2.imshow(frame)
+        #cv2.imshow('frame', frame)
         # cv2.waitKey(0)
         data_frame = decode_frame(frame, virtual_size)
         end_ptr = dp + data_frame.size
@@ -180,7 +181,7 @@ def decode_video(cap, data_length):
             break
         dp = end_ptr
 
-        for i in range(pi_frames - 1):
+        for i in range(pi_frames):
             ret, frame = cap.read()
     with open('output.txt', 'w') as output_fp:
         output_fp.write((reconstructed_data % 128).tostring().decode('ascii'))
@@ -214,6 +215,9 @@ def main():
         cap = cv2.VideoCapture('test.avi')
 
         encode_video(data, out)
+
+        print("\n\n\n\n")
+
         decode_video(cap, total_data_length)
 
 
