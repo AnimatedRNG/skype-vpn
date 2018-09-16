@@ -5,17 +5,18 @@ import cv2
 
 pi_frames = 3
 
+actual_size = (1920, 1080)
+virtual_size = (192, 108)
+
 
 def encode_pixel(datum):
-    #value = (datum // 4) * 4
-    #hue = int((datum % 4) * (180 / 4))
-    # return (value, hue)
-    return (datum, 50)
+    value = (datum // 8) * 8
+    hue = int((datum % 8) * (180 / 8))
+    return (value, hue)
 
 
 def decode_pixel(value, hue):
-    # return int(round(value + hue / (180 / 4)))
-    return value
+    return int(round(value + hue / (180 / 8)))
 
 
 def encode_frame(data, virtual_resolution, actual_resolution):
@@ -81,56 +82,65 @@ def decode_frame(frame, virtual_resolution):
     return data
 
 
+def encode_video(data, out):
+    dp = 0
+
+    a = 0
+    while True:
+        frame, dp = encode_frame(data, virtual_size, actual_size)
+        for i in range(pi_frames):
+            print("New frame {}".format(a))
+            out.write(frame)
+            a += 1
+        if dp >= len(data):
+            break
+        data = data[dp:]
+    out.release()
+
+
+def decode_video(cap, data_length):
+    reconstructed_data = np.zeros((data_length,), dtype=np.uint8)
+    dp = 0
+    i = 0
+
+    if cap.isOpened():
+        for i in range(pi_frames // 2):
+            ret, frame = cap.read()
+
+    while (cap.isOpened()):
+        # cv2.imshow(frame)
+        # cv2.waitKey(0)
+        data_frame = decode_frame(frame, virtual_size)
+        end_ptr = dp + data_frame.size
+        print(dp, end_ptr, data_frame.size)
+        if end_ptr < data_length:
+            reconstructed_data[dp:end_ptr] = data_frame
+        else:
+            reconstructed_data[dp:] = data_frame[:len(
+                reconstructed_data) - dp]
+            break
+        dp = end_ptr
+
+        for i in range(pi_frames - 1):
+            ret, frame = cap.read()
+    with open('output.txt', 'w') as output_fp:
+        output_fp.write((reconstructed_data % 128).tostring().decode('ascii'))
+
+    return reconstructed_data
+
+
 def main():
     with open('data.txt', 'r') as fp:
         data = fp.read().encode('ascii')
         original_data = np.frombuffer(data[:], dtype=np.uint8)
         total_data_length = len(data)
-        dp = 0
 
-        actual_size = (1920, 1080)
-        virtual_size = (2, 2)
         out = cv2.VideoWriter('test.avi', cv2.VideoWriter_fourcc(
             'X', '2', '6', '4'), 15, actual_size)
-        while True:
-            frame, dp = encode_frame(data, virtual_size, actual_size)
-            for i in range(pi_frames):
-                print("New frame")
-                out.write(frame)
-            if dp >= len(data):
-                break
-            data = data[dp:]
-        out.release()
-
         cap = cv2.VideoCapture('test.avi')
 
-        reconstructed_data = np.zeros((total_data_length,), dtype=np.uint8)
-        dp = 0
-        i = 0
-
-        if cap.isOpened():
-            for i in range(pi_frames // 2):
-                ret, frame = cap.read()
-
-        while (cap.isOpened()):
-            cv2.imshow(frame)
-            cv2.waitKey(0)
-            data_frame = decode_frame(frame, virtual_size)
-            end_ptr = dp + data_frame.size
-            print(dp, end_ptr, data_frame.size)
-            if end_ptr < total_data_length:
-                reconstructed_data[dp:end_ptr] = data_frame
-            else:
-                reconstructed_data[dp:] = data_frame[:len(
-                    reconstructed_data) - dp]
-                break
-            dp = end_ptr
-
-            for i in range(pi_frames - 1):
-                ret, frame = cap.read()
-        with open('output.txt', 'w') as output_fp:
-            output_fp.write(reconstructed_data.tostring().decode('ascii'))
-        print(sum(abs(reconstructed_data - original_data)))
+        encode_video(data, out)
+        decode_video(cap, total_data_length)
 
 
 if __name__ == '__main__':
