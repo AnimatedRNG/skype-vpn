@@ -5,8 +5,8 @@ import cv2
 
 pi_frames = 3
 
-actual_size = (1920, 1080)
-virtual_size = (192, 108)
+actual_size = (1280, 720)
+virtual_size = (320, 180)
 
 
 def encode_pixel(datum):
