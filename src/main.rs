@@ -92,8 +92,9 @@ impl FrameEncoder {
         let enc = reed_solomon::Encoder::new(ECC_LEN);
         // add crc32 hash to the end of the frame
         let mut v = [0u8; 4];
+        raw_frame_data.extend([0u8; 2].into_iter());
         BigEndian::write_u32(&mut v, crc32::checksum_ieee(&raw_frame_data));
-        raw_frame_data.extend([0u8; 2].into_iter().chain(v.into_iter()));
+        raw_frame_data.extend(v.into_iter());
         // reed solomon it all
         let mut frame : Frame = [0u8; FRAME_LEN];
         println!("rfd: {:?}", raw_frame_data);
@@ -211,7 +212,7 @@ fn handle_1_1_udp(
     sock: UdpSocket,
     remote_opt: Option<SocketAddr>,
 ) -> (mpsc::Sender<Vec<u8>>, mpsc::Receiver<Vec<u8>>) {
-    let mut buf = [0; MAX_UDP_PACKET_LEN];
+    let mut buf = [0; 1024 * 20];
     let (in_tx, in_rx) = mpsc::channel::<Vec<u8>>();
     let (out_tx, out_rx) = mpsc::channel::<Vec<u8>>();
     thread::spawn(move || {
@@ -237,7 +238,7 @@ fn handle_1_1_udp(
             if remote != src_addr {
                 println!("WARNING: remote {} != {}", remote, src_addr);
             }
-            in_tx.send(buf[..num_bytes].to_vec()).unwrap();
+            in_tx.send(buf[..std::cmp::min(num_bytes, buf.len())].to_vec()).unwrap();
         });
     });
     (out_tx, in_rx)
@@ -260,7 +261,8 @@ fn run_server(openvpn_ip_port: String) {
         for packet in upstream_rx {
             println!("Got upstream packet: {:?}", packet);
             enc.add_packet(packet);
-            client_tx.send(enc.get_next_frame().to_vec()).unwrap();
+            let f = enc.get_next_frame().to_vec();
+            client_tx.send(f).unwrap();
         }
     });
 
@@ -303,7 +305,9 @@ fn run_client() {
         for packet in client_rx {
             println!("Got openvpn client packet: {:?}", packet);
             enc.add_packet(packet);
-            server_tx.send(enc.get_next_frame().to_vec()).unwrap();
+
+            let f = enc.get_next_frame().to_vec();
+            server_tx.send(f).unwrap();
         }
     });
 
