@@ -9,8 +9,7 @@ use std::thread;
 use std::collections::VecDeque;
 
 use reed_solomon::Decoder;
-use reed_solomon::Encoder;
-use crc::{crc32, Hasher32};
+use crc::crc32;
 
 use byteorder::{ByteOrder, BigEndian};
 
@@ -26,6 +25,14 @@ const HASH_LENGTH_BYTES : usize = 2;
 const SEQNO_LENGTH_BYTES : usize = 8;
 
 type Frame = [u8; FRAME_LEN];
+
+fn vec_to_frame(v: Vec<u8>) -> Frame {
+    let mut f = [0u8; FRAME_LEN];
+    for i in 0..v.len() {
+        f[i] = v[i];
+    }
+    f
+}
 
 fn divide_round_up(n: usize, m: usize) -> usize {
     n / m + (n % m != 0) as usize
@@ -113,6 +120,28 @@ impl FrameEncoder {
             .enumerate()
             .for_each(|(i, p)| frame[i] = p);
          frame
+    }
+}
+
+struct FrameDecoder {
+    next_seqno: u64,
+}
+
+impl FrameDecoder {
+    fn new() -> Self {
+        FrameDecoder {next_seqno: 0}
+    }
+    fn read_frame(&mut self, f: Frame) -> Option<Vec<Vec<u8>>> {
+        if let Some((seqno, packets)) = decode_frame(f) {
+            if seqno >= self.next_seqno {
+                self.next_seqno = seqno + 1;
+                Some(packets)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
     }
 }
 
@@ -241,24 +270,26 @@ fn run_server(openvpn_ip_port: String) {
 
     // forward packets from openvpn server to client
     let t1 = thread::spawn(move || {
-        let enc = Encoder::new(ECC_LEN);
+        let mut enc = FrameEncoder::new();
         for packet in upstream_rx {
             println!("Got upstream packet: {:?}", packet);
-            client_tx.send(enc.encode(&packet).to_vec()).unwrap();
+            enc.add_packet(packet);
+            client_tx.send(enc.get_next_frame().to_vec()).unwrap();
         }
     });
 
     // forward packets from client to openvpn server
     let t2 = thread::spawn(move || {
-        let dec = Decoder::new(ECC_LEN);
+        let mut dec = FrameDecoder::new();
         for packet in client_rx {
             println!("Got packet from client: {:?}", packet);
-            match dec.correct(&packet[..], None) {
-                Ok(decoded) => {
-                    println!("Decoded to {:?}", decoded);
-                    upstream_tx.send(decoded.data().to_vec()).unwrap();
+            if let Some(decoded) = dec.read_frame(vec_to_frame(packet)) {
+                for pkt in decoded {
+                    println!("Decoded to {:?}", pkt);
+                    upstream_tx.send(pkt).unwrap();
                 }
-                Err(_) => {}
+            } else {
+                println!("Failed to decode packet");
             }
         }
     });
@@ -282,17 +313,11 @@ fn run_client() {
 
     // forward packets from openvpn client to server
     let t1 = thread::spawn(move || {
-        let enc = Encoder::new(ECC_LEN);
+        let mut enc = FrameEncoder::new();
         for packet in client_rx {
             println!("Got openvpn client packet: {:?}", packet);
-            let encoded = enc.encode(&packet);
-            println!("Sending {:?}", encoded.to_vec());
-            assert!(
-                Decoder::new(ECC_LEN)
-                    .correct(&encoded.to_vec(), None)
-                    .is_ok()
-            );
-            server_tx.send(encoded.to_vec()).unwrap();
+            enc.add_packet(packet);
+            server_tx.send(enc.get_next_frame().to_vec()).unwrap();
         }
     });
 
@@ -300,15 +325,14 @@ fn run_client() {
     let t2 = thread::spawn(move || {
         for packet in server_rx {
             println!("Got server packet: {:?}", packet);
-            let dec = Decoder::new(ECC_LEN);
-            match dec.correct(&packet[..], None) {
-                Ok(decoded) => {
-                    println!("Decoded: {:?}", decoded);
-                    client_tx.send(decoded.data().to_vec()).unwrap();
+            let mut dec = FrameDecoder::new();
+            if let Some(decoded) = dec.read_frame(vec_to_frame(packet)) {
+                for pkt in decoded {
+                    println!("Decoded: {:?}", pkt);
+                    client_tx.send(pkt).unwrap();
                 }
-                Err(_) => {
-                    println!("Failed to decode packet!");
-                }
+            } else {
+                println!("Failed to decode packet!");
             }
         }
     });
