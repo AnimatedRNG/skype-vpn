@@ -75,7 +75,6 @@ impl FrameEncoder {
 
         let mut seqno_bytes = vec![0u8; 8];
         BigEndian::write_u64(&mut seqno_bytes, self.seqno);
-        println!("seqno bytes: {:?}", seqno_bytes);
         self.seqno += 1;
         // insert seqno at start
         let mut raw_frame_data : Vec<u8> = std::iter::once(seqno_bytes).chain(
@@ -107,15 +106,7 @@ impl FrameEncoder {
                 }
                 padded
             })
-            .map(|chunk| {
-                println!("{:?}", chunk);
-                chunk
-            })
             .map(|chunk| enc.encode(&chunk).to_vec())
-            .map(|chunk| {
-                println!("{:?}", chunk);
-                chunk
-            })
             .flatten()
             .enumerate()
             .for_each(|(i, p)| frame[i] = p);
@@ -155,10 +146,6 @@ fn decode_frame(f: Frame) -> Option<(u64, Vec<Vec<u8>>)> {
                 .find(|&&x| x != 0)
                 .is_some()
         })
-        .map(|c| {
-            println!("{:?}", c);
-            c
-        })
         .map(|c| dec.correct(c, None).and_then(
             |buffer| Ok(buffer.data().to_vec())).ok())
         .collect::<Option<Vec<Vec<u8>>>>();
@@ -181,7 +168,6 @@ fn decode_frame(f: Frame) -> Option<(u64, Vec<Vec<u8>>)> {
     if read_hash != calculated_hash {
         println!("Hashes differ: {} != {}", read_hash, calculated_hash);
     }
-    println!("seqno bytes: {:?}", &raw_frame_data[0..8]);
     let seqno = BigEndian::read_u64(&raw_frame_data[0..8]);
     let mut packet_offset: usize = 8;
     let mut packets = vec![];
