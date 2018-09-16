@@ -97,7 +97,7 @@ impl FrameEncoder {
         raw_frame_data.extend(v.into_iter());
         // reed solomon it all
         let mut frame : Frame = [0u8; FRAME_LEN];
-        println!("rfd: {:?}", raw_frame_data);
+        eprintln!("rfd: {:?}", raw_frame_data);
         raw_frame_data
             .chunks(REED_SOLOMON_BLOCK_LEN)
             .map(|c| {
@@ -151,7 +151,7 @@ fn decode_frame(f: Frame) -> Option<(u64, Vec<Vec<u8>>)> {
             |buffer| Ok(buffer.data().to_vec())).ok())
         .collect::<Option<Vec<Vec<u8>>>>();
     if raw_frame_data_opt.is_none() {
-        println!("Too many errors: unable to read frame");
+        eprintln!("Too many errors: unable to read frame");
         return None;
     }
     let raw_frame_data = raw_frame_data_opt.unwrap().into_iter()
@@ -162,12 +162,12 @@ fn decode_frame(f: Frame) -> Option<(u64, Vec<Vec<u8>>)> {
         last_nonzero_index -= 1;
     }
     let frame_end = last_nonzero_index + 1;
-    println!("rfd(decode): {:?}", raw_frame_data[0..frame_end].to_vec());
+    eprintln!("rfd(decode): {:?}", raw_frame_data[0..frame_end].to_vec());
     // check hash
     let read_hash = BigEndian::read_u32(&raw_frame_data[frame_end-4..]);
     let calculated_hash = crc32::checksum_ieee(&raw_frame_data[..frame_end-4]);
     if read_hash != calculated_hash {
-        println!("Hashes differ: {} != {}", read_hash, calculated_hash);
+        eprintln!("Hashes differ: {} != {}", read_hash, calculated_hash);
     }
     let seqno = BigEndian::read_u64(&raw_frame_data[0..8]);
     let mut packet_offset: usize = 8;
@@ -200,7 +200,7 @@ fn test_frame() {
 }
 
 fn print_usage(args: Vec<String>) {
-    println!(
+    eprintln!(
         "USAGE:\n  {0} server openvpn_ip_port\n  {0} client server_ip_port",
         args[0]
     );
@@ -236,7 +236,7 @@ fn handle_1_1_udp(
         thread::spawn(move || loop {
             let (num_bytes, src_addr) = sock.recv_from(&mut buf).expect("Didn't receive data");
             if remote != src_addr {
-                println!("WARNING: remote {} != {}", remote, src_addr);
+                eprintln!("WARNING: remote {} != {}", remote, src_addr);
             }
             in_tx.send(buf[..std::cmp::min(num_bytes, buf.len())].to_vec()).unwrap();
         });
@@ -245,21 +245,21 @@ fn handle_1_1_udp(
 }
 
 fn run_server(openvpn_ip_port: String) {
-    println!("Starting Skype VPN server...");
+    eprintln!("Starting Skype VPN server...");
     let upstream_addr: SocketAddr = openvpn_ip_port.parse().unwrap();
     let upstream = UdpSocket::bind("127.0.0.1:0").unwrap();
     upstream.connect(upstream_addr).unwrap();
-    println!("Connected to OpenVPN!");
+    eprintln!("Connected to OpenVPN!");
     let (upstream_tx, upstream_rx) = handle_1_1_udp(upstream, Some(upstream_addr));
     let client_sock = UdpSocket::bind(SERVER_TRANSFER_PORT).unwrap();
-    println!("Listening for client on {}", SERVER_TRANSFER_PORT);
+    eprintln!("Listening for client on {}", SERVER_TRANSFER_PORT);
     let (client_tx, client_rx) = handle_1_1_udp(client_sock, None);
 
     // forward packets from openvpn server to client
     let t1 = thread::spawn(move || {
         let mut enc = FrameEncoder::new();
         for packet in upstream_rx {
-            println!("Got upstream packet: {:?}", packet);
+            eprintln!("Got upstream packet: {:?}", packet);
             enc.add_packet(packet);
             let f = enc.get_next_frame().to_vec();
             client_tx.send(f).unwrap();
@@ -270,14 +270,14 @@ fn run_server(openvpn_ip_port: String) {
     let t2 = thread::spawn(move || {
         let mut dec = FrameDecoder::new();
         for packet in client_rx {
-            println!("Got packet from client: {:?}", packet);
+            eprintln!("Got packet from client: {:?}", packet);
             if let Some(decoded) = dec.read_frame(vec_to_frame(packet)) {
                 for pkt in decoded {
-                    println!("Decoded to {:?}", pkt);
+                    eprintln!("Decoded to {:?}", pkt);
                     upstream_tx.send(pkt).unwrap();
                 }
             } else {
-                println!("Failed to decode packet");
+                eprintln!("Failed to decode packet");
             }
         }
     });
@@ -287,23 +287,23 @@ fn run_server(openvpn_ip_port: String) {
 }
 
 fn run_client() {
-    println!("Starting Skype VPN client...");
+    eprintln!("Starting Skype VPN client...");
     // listen on new port for openvpn client to connect to
     let client_sock = UdpSocket::bind(CLIENT_OPENVPN_GATEWAY).unwrap();
 
     let socket_addr = SERVER_TRANSFER_PORT.parse::<SocketAddr>().unwrap();
     let server_sock = UdpSocket::bind("127.0.0.1:0").unwrap();
     let (server_tx, server_rx) = handle_1_1_udp(server_sock, Some(socket_addr));
-    println!("Connected to server!");
+    eprintln!("Connected to server!");
 
-    println!("Listening on 127.0.0.1:50272");
+    eprintln!("Listening on 127.0.0.1:50272");
     let (client_tx, client_rx) = handle_1_1_udp(client_sock, None);
 
     // forward packets from openvpn client to server
     let t1 = thread::spawn(move || {
         let mut enc = FrameEncoder::new();
         for packet in client_rx {
-            println!("Got openvpn client packet: {:?}", packet);
+            eprintln!("Got openvpn client packet: {:?}", packet);
             enc.add_packet(packet);
 
             let f = enc.get_next_frame().to_vec();
@@ -314,15 +314,15 @@ fn run_client() {
     // forward packets from server to openvpn client
     let t2 = thread::spawn(move || {
         for packet in server_rx {
-            println!("Got server packet: {:?}", packet);
+            eprintln!("Got server packet: {:?}", packet);
             let mut dec = FrameDecoder::new();
             if let Some(decoded) = dec.read_frame(vec_to_frame(packet)) {
                 for pkt in decoded {
-                    println!("Decoded: {:?}", pkt);
+                    eprintln!("Decoded: {:?}", pkt);
                     client_tx.send(pkt).unwrap();
                 }
             } else {
-                println!("Failed to decode packet!");
+                eprintln!("Failed to decode packet!");
             }
         }
     });
