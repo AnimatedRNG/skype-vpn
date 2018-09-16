@@ -6,7 +6,7 @@ import cv2
 pi_frames = 3
 
 actual_size = (1920, 1080)
-virtual_size = (4, 4)
+virtual_size = (192, 108)
 
 
 def encode_pixel(datum):
@@ -72,7 +72,6 @@ def encode_frame(data, virtual_resolution, actual_resolution):
         for iy in range(0, virtual_resolution[1], 2):
             if data_index >= len(data):
                 break
-            print("data[{}] = {}".format(data_index, data[data_index]))
             datums = data[data_index] // 16, data[data_index] % 16
             for i, datum in enumerate(datums):
                 vx = int(ix * indices[0])
@@ -136,7 +135,6 @@ def decode_frame(frame, virtual_resolution):
                         data_index, value, saturation, hue, dt_val))'''
             datum = datums[0] * 16 + datums[1]
             data[data_index] = datum
-            print("data[{}] = {}".format(data_index, data[data_index]))
 
             data_index += 1
     return data
@@ -149,7 +147,7 @@ def encode_video(data, out):
     while True:
         frame, dp = encode_frame(data, virtual_size, actual_size)
         for i in range(pi_frames):
-            #print("New frame {}".format(a))
+            print("New frame {}".format(a))
             out.write(frame)
             a += 1
         if dp >= len(data):
@@ -161,7 +159,6 @@ def encode_video(data, out):
 def decode_video(cap, data_length):
     reconstructed_data = np.zeros((data_length,), dtype=np.uint8)
     dp = 0
-    i = 0
 
     if cap.isOpened():
         for i in range(pi_frames // 2):
