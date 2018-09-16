@@ -7,7 +7,7 @@ use std::net::{SocketAddr, UdpSocket};
 use std::sync::mpsc;
 use std::thread;
 use std::collections::VecDeque;
-use std::io::{self, Write};
+use std::io::{self, Write, BufReader, BufRead};
 
 use reed_solomon::Decoder;
 use crc::crc32;
@@ -158,6 +158,10 @@ fn decode_frame(f: Frame) -> Option<(u64, Vec<Vec<u8>>)> {
     let raw_frame_data = raw_frame_data_opt.unwrap().into_iter()
         .flatten()
         .collect::<Vec<u8>>();
+    if raw_frame_data.is_empty() {
+        eprintln!("Dropping empty frame");
+        return None;
+    }
     let mut last_nonzero_index = raw_frame_data.len()-1;
     while raw_frame_data[last_nonzero_index] == 0 {
         last_nonzero_index -= 1;
@@ -252,9 +256,7 @@ fn run_server(openvpn_ip_port: String) {
     upstream.connect(upstream_addr).unwrap();
     eprintln!("Connected to OpenVPN!");
     let (upstream_tx, upstream_rx) = handle_1_1_udp(upstream, Some(upstream_addr));
-    let client_sock = UdpSocket::bind(SERVER_TRANSFER_PORT).unwrap();
     eprintln!("Listening for client on {}", SERVER_TRANSFER_PORT);
-    let (client_tx, client_rx) = handle_1_1_udp(client_sock, None);
 
     // forward packets from openvpn server to client
     let t1 = thread::spawn(move || {
@@ -267,18 +269,19 @@ fn run_server(openvpn_ip_port: String) {
         }
     });
 
-    // forward packets from client to openvpn server
+    // forward data from client to openvpn server
     let t2 = thread::spawn(move || {
+        let mut stdin = BufReader::with_capacity(FRAME_LEN, io::stdin());
         let mut dec = FrameDecoder::new();
-        for packet in client_rx {
-            eprintln!("Got packet from client: {:?}", packet);
-            if let Some(decoded) = dec.read_frame(vec_to_frame(packet)) {
+        loop {
+            let frame = stdin.fill_buf().unwrap();
+            if let Some(decoded) = dec.read_frame(vec_to_frame(frame.to_vec())) {
                 for pkt in decoded {
                     eprintln!("Decoded to {:?}", pkt);
                     upstream_tx.send(pkt).unwrap();
                 }
             } else {
-                eprintln!("Failed to decode packet");
+                eprintln!("Failed to decode frame");
             }
         }
     });
