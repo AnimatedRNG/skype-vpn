@@ -6,17 +6,24 @@ import cv2
 pi_frames = 3
 
 actual_size = (1920, 1080)
-virtual_size = (192, 108)
+virtual_size = (2, 2)
 
 
 def encode_pixel(datum):
-    value = (datum // 8) * 8
-    hue = int((datum % 8) * (180 / 8))
-    return (value, hue)
+    hue_bits = datum % (2 ** 2)
+    saturation_bits = (datum >> 2) % (2 ** 2)
+    value_bits = (datum >> 4) % (2 ** 4)
+
+    return (value_bits * 16,
+            saturation_bits * 64,
+            hue_bits * (180 // 4))
 
 
-def decode_pixel(value, hue):
-    return int(round(value + hue / (180 / 8)))
+def decode_pixel(value, saturation, hue):
+    value_rounded = int(value / 16)
+    saturation_rounded = int(saturation / 64)
+    hue_rounded = int(hue / (180 // 4))
+    return (value_rounded << 4) + (saturation_rounded << 2) + hue_rounded
 
 
 def encode_frame(data, virtual_resolution, actual_resolution):
@@ -33,15 +40,19 @@ def encode_frame(data, virtual_resolution, actual_resolution):
             vx = int(ix * indices[0])
             vy = int(iy * indices[1])
             datum = data[data_index]
-            value, hue = encode_pixel(datum)
+            value, saturation, hue = encode_pixel(datum)
 
             img[vy:int(vy+indices[1]), vx:int(vx+indices[0]), 0] = hue
-            img[vy:int(vy+indices[1]), vx:int(vx+indices[0]), 1] = 128
+            img[vy:int(vy+indices[1]), vx:int(vx+indices[0]), 1] = saturation
             img[vy:int(vy+indices[1]), vx:int(vx+indices[0]), 2] = value
+
+            if data_index < 50:
+                print("{}: {} {} {} {}".format(
+                    data_index, hue, saturation, value, datum))
 
             data_index += 1
     rgb = cv2.cvtColor(img, cv2.COLOR_HSV2BGR)
-    #cv2.imshow('rgb', rgb)
+    # cv2.imshow('rgb', rgb)
     # cv2.waitKey(10000)
 
     return (rgb, data_index)
@@ -67,17 +78,22 @@ def decode_frame(frame, virtual_resolution):
             vx_1 = min(vx+int(indices[0]), actual_resolution[1] - 1)
             vy_1 = min(vy+int(indices[1]), actual_resolution[0] - 1)
             patch = hsv_frame[vy:vy_1, vx:vx_1]
-            #print(vx, vy, vx_1, vy_1)
-            # print(patch.shape)
-            #cv2.imshow('frame', cv2.cvtColor(hsv_frame, cv2.COLOR_HSV2BGR))
-            #cv2.imshow('patch', cv2.cvtColor(patch, cv2.COLOR_HSV2BGR))
-            # cv2.waitKey(0)
+            print(vx, vy, vx_1, vy_1)
+            print(patch.shape)
+            cv2.imshow('frame', cv2.cvtColor(hsv_frame, cv2.COLOR_HSV2BGR))
+            cv2.imshow('patch', cv2.cvtColor(patch, cv2.COLOR_HSV2BGR))
+            cv2.waitKey(0)
             avg_color = np.sum(patch, axis=(0, 1)) \
                 / (indices[0] * indices[1])
             #print("{} vs {}".format(avg_color, hsv_frame[vy+5, vx+5]))
-            (hue, test, value) = avg_color
-            datum = decode_pixel(value, hue)
+            (value, saturation, hue) = np.round(avg_color).astype(np.uint8)
+            datum = decode_pixel(value, saturation, hue)
             data[data_index] = datum
+
+            if data_index < 50:
+                print("{}: {} {} {} {}".format(
+                    data_index, hue, saturation, value, datum))
+
             data_index += 1
     return data
 
@@ -89,7 +105,7 @@ def encode_video(data, out):
     while True:
         frame, dp = encode_frame(data, virtual_size, actual_size)
         for i in range(pi_frames):
-            print("New frame {}".format(a))
+            #print("New frame {}".format(a))
             out.write(frame)
             a += 1
         if dp >= len(data):
@@ -112,7 +128,7 @@ def decode_video(cap, data_length):
         # cv2.waitKey(0)
         data_frame = decode_frame(frame, virtual_size)
         end_ptr = dp + data_frame.size
-        print(dp, end_ptr, data_frame.size)
+        #print(dp, end_ptr, data_frame.size)
         if end_ptr < data_length:
             reconstructed_data[dp:end_ptr] = data_frame
         else:
@@ -127,6 +143,21 @@ def decode_video(cap, data_length):
         output_fp.write((reconstructed_data % 128).tostring().decode('ascii'))
 
     return reconstructed_data
+
+
+def test_encode_decode():
+    for value in range(0, 256, 4):
+        for saturation in range(0, 256, 4):
+            for hue in range(0, 180, 5):
+                all_should_be_the_same = []
+                for dx in range(4):
+                    for dy in range(4):
+                        for dz in range(4):
+                            decoded = decode_pixel(
+                                value + dx, saturation + dy, hue + dz)
+                            all_should_be_the_same.append(decoded)
+                print(all_should_be_the_same)
+                assert(len(set(all_should_be_the_same)) == 1)
 
 
 def main():
@@ -146,4 +177,5 @@ def main():
 if __name__ == '__main__':
     for i in range(256):
         assert(i == decode_pixel(*encode_pixel(i)))
+    # test_encode_decode()
     main()
