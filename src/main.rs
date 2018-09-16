@@ -7,6 +7,7 @@ use std::net::{SocketAddr, UdpSocket};
 use std::sync::mpsc;
 use std::thread;
 use std::collections::VecDeque;
+use std::io::{self, Write};
 
 use reed_solomon::Decoder;
 use crc::crc32;
@@ -261,8 +262,8 @@ fn run_server(openvpn_ip_port: String) {
         for packet in upstream_rx {
             eprintln!("Got upstream packet: {:?}", packet);
             enc.add_packet(packet);
-            let f = enc.get_next_frame().to_vec();
-            client_tx.send(f).unwrap();
+            let f = enc.get_next_frame();
+            io::stdout().write(&f).unwrap();
         }
     });
 
@@ -302,12 +303,17 @@ fn run_client() {
     // forward packets from openvpn client to server
     let t1 = thread::spawn(move || {
         let mut enc = FrameEncoder::new();
-        for packet in client_rx {
-            eprintln!("Got openvpn client packet: {:?}", packet);
-            enc.add_packet(packet);
-
+        for _ in 1..100 {
+            enc.add_packet((1..15000).collect::<Vec<u8>>());
             let f = enc.get_next_frame().to_vec();
-            server_tx.send(f).unwrap();
+            io::stdout().write(&f).unwrap();
+        }
+        loop {
+            if let Ok(x) = client_rx.recv_timeout(std::time::Duration::from_millis(100)) {
+                enc.add_packet(x);
+            }
+            let f = enc.get_next_frame().to_vec();
+            io::stdout().write(&f).unwrap();
         }
     });
 
