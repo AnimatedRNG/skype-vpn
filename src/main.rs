@@ -274,15 +274,18 @@ fn run_server(openvpn_ip_port: String) {
         let mut stdin = BufReader::with_capacity(FRAME_LEN, io::stdin());
         let mut dec = FrameDecoder::new();
         loop {
-            let frame = stdin.fill_buf().unwrap();
-            if let Some(decoded) = dec.read_frame(vec_to_frame(frame.to_vec())) {
-                for pkt in decoded {
-                    eprintln!("Decoded to {:?}", pkt);
-                    upstream_tx.send(pkt).unwrap();
+            {
+                let frame = stdin.fill_buf().unwrap();
+                if let Some(decoded) = dec.read_frame(vec_to_frame(frame.to_vec())) {
+                    for pkt in decoded {
+                        eprintln!("Decoded to {:?}", pkt);
+                        upstream_tx.send(pkt).unwrap();
+                    }
+                } else {
+                    eprintln!("Failed to decode frame");
                 }
-            } else {
-                eprintln!("Failed to decode frame");
             }
+            stdin.consume(FRAME_LEN);
         }
     });
 
@@ -306,11 +309,6 @@ fn run_client() {
     // forward packets from openvpn client to server
     let t1 = thread::spawn(move || {
         let mut enc = FrameEncoder::new();
-        for _ in 1..100 {
-            enc.add_packet((1..15000).collect::<Vec<u8>>());
-            let f = enc.get_next_frame().to_vec();
-            io::stdout().write(&f).unwrap();
-        }
         loop {
             if let Ok(x) = client_rx.recv_timeout(std::time::Duration::from_millis(100)) {
                 enc.add_packet(x);
