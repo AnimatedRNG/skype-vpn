@@ -2,6 +2,8 @@
 
 Experimental hackathon code. Tunnel OpenVPN through video formats with arbitrary compression + encoding.
 
+![diagram of architecture](diagram.png)
+
 ## How to
 
 1. Setup OpenVPN client + server
