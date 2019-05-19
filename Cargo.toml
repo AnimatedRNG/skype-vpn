@@ -1,9 +1,15 @@
 [package]
 name = "skype-vpn"
 version = "0.1.0"
-authors = ["Matthew Pfeiffer <spferical@gmail.com>"]
+authors = ["Matthew Pfeiffer <spferical@gmail.com>",
+           "Srinivas Kaza <kazasrinivas3@gmail.com"]
+
+[build-dependencies]
+cc = "1.0.29"
 
 [dependencies]
 reed-solomon = "0.2"
 crc = "1"
 byteorder = "1.2"
+image = "0.21.0"
+num-traits = "0.2.6"

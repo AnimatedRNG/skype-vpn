@@ -1,18 +1,22 @@
-extern crate reed_solomon;
-extern crate crc;
 extern crate byteorder;
+extern crate crc;
+extern crate reed_solomon;
 
+mod image_coder;
+
+use image_coder::FRAME_LEN;
+
+use std::collections::VecDeque;
 use std::env;
+use std::io::{self, BufRead, BufReader, Write};
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::mpsc;
 use std::thread;
-use std::collections::VecDeque;
-use std::io::{self, Write, BufReader, BufRead};
 
-use reed_solomon::Decoder;
 use crc::crc32;
+use reed_solomon::Decoder;
 
-use byteorder::{ByteOrder, BigEndian};
+use byteorder::{BigEndian, ByteOrder};
 
 const MAX_UDP_PACKET_LEN: usize = 576;
 const PACKET_LEN_ENCODE_BYTES: usize = 2;
@@ -21,9 +25,8 @@ const REED_SOLOMON_BLOCK_LEN: usize = 10;
 const ECC_LEN: usize = 8;
 const CLIENT_OPENVPN_GATEWAY: &str = "127.0.0.1:50272";
 const SERVER_TRANSFER_PORT: &str = "127.0.0.1:50273";
-const FRAME_LEN: usize = 1024 * 10;
-const HASH_LENGTH_BYTES : usize = 2;
-const SEQNO_LENGTH_BYTES : usize = 8;
+const HASH_LENGTH_BYTES: usize = 2;
+const SEQNO_LENGTH_BYTES: usize = 8;
 
 type Frame = [u8; FRAME_LEN];
 
@@ -51,7 +54,10 @@ struct FrameEncoder {
 
 impl FrameEncoder {
     fn new() -> Self {
-        FrameEncoder {packets: VecDeque::new(), seqno: 0}
+        FrameEncoder {
+            packets: VecDeque::new(),
+            seqno: 0,
+        }
     }
 
     fn add_packet(&mut self, packet: Vec<u8>) {
@@ -78,14 +84,16 @@ impl FrameEncoder {
         BigEndian::write_u64(&mut seqno_bytes, self.seqno);
         self.seqno += 1;
         // insert seqno at start
-        let mut raw_frame_data : Vec<u8> = std::iter::once(seqno_bytes).chain(
-            packet_batch.into_iter()
-                // prepend packet lengths before each
-                .flat_map(|p| {
-                    let mut v = vec![0u8; 2];
-                    BigEndian::write_u16(&mut v, p.len() as u16);
-                    vec![v, p].into_iter()
-                })
+        let mut raw_frame_data: Vec<u8> = std::iter::once(seqno_bytes)
+            .chain(
+                packet_batch
+                    .into_iter()
+                    // prepend packet lengths before each
+                    .flat_map(|p| {
+                        let mut v = vec![0u8; 2];
+                        BigEndian::write_u16(&mut v, p.len() as u16);
+                        vec![v, p].into_iter()
+                    }),
             )
             // turn into raw bytes
             .flatten()
@@ -97,7 +105,7 @@ impl FrameEncoder {
         BigEndian::write_u32(&mut v, crc32::checksum_ieee(&raw_frame_data));
         raw_frame_data.extend(v.into_iter());
         // reed solomon it all
-        let mut frame : Frame = [0u8; FRAME_LEN];
+        let mut frame: Frame = [0u8; FRAME_LEN];
         eprintln!("rfd: {:?}", raw_frame_data);
         raw_frame_data
             .chunks(REED_SOLOMON_BLOCK_LEN)
@@ -112,7 +120,7 @@ impl FrameEncoder {
             .flatten()
             .enumerate()
             .for_each(|(i, p)| frame[i] = p);
-         frame
+        frame
     }
 }
 
@@ -122,7 +130,7 @@ struct FrameDecoder {
 
 impl FrameDecoder {
     fn new() -> Self {
-        FrameDecoder {next_seqno: 0}
+        FrameDecoder { next_seqno: 0 }
     }
     fn read_frame(&mut self, f: Frame) -> Option<Vec<Vec<u8>>> {
         if let Some((seqno, packets)) = decode_frame(f) {
@@ -143,34 +151,35 @@ fn decode_frame(f: Frame) -> Option<(u64, Vec<Vec<u8>>)> {
     let dec = Decoder::new(ECC_LEN);
     let raw_frame_data_opt = f
         .chunks(REED_SOLOMON_BLOCK_LEN + ECC_LEN)
-        .take_while(|&c| {
-            c.iter()
-                .find(|&&x| x != 0)
-                .is_some()
+        .take_while(|&c| c.iter().find(|&&x| x != 0).is_some())
+        .map(|c| {
+            dec.correct(c, None)
+                .and_then(|buffer| Ok(buffer.data().to_vec()))
+                .ok()
         })
-        .map(|c| dec.correct(c, None).and_then(
-            |buffer| Ok(buffer.data().to_vec())).ok())
         .collect::<Option<Vec<Vec<u8>>>>();
     if raw_frame_data_opt.is_none() {
         eprintln!("Too many errors: unable to read frame");
         return None;
     }
-    let raw_frame_data = raw_frame_data_opt.unwrap().into_iter()
+    let raw_frame_data = raw_frame_data_opt
+        .unwrap()
+        .into_iter()
         .flatten()
         .collect::<Vec<u8>>();
     if raw_frame_data.is_empty() {
         eprintln!("Dropping empty frame");
         return None;
     }
-    let mut last_nonzero_index = raw_frame_data.len()-1;
+    let mut last_nonzero_index = raw_frame_data.len() - 1;
     while raw_frame_data[last_nonzero_index] == 0 {
         last_nonzero_index -= 1;
     }
     let frame_end = last_nonzero_index + 1;
     eprintln!("rfd(decode): {:?}", raw_frame_data[0..frame_end].to_vec());
     // check hash
-    let read_hash = BigEndian::read_u32(&raw_frame_data[frame_end-4..]);
-    let calculated_hash = crc32::checksum_ieee(&raw_frame_data[..frame_end-4]);
+    let read_hash = BigEndian::read_u32(&raw_frame_data[frame_end - 4..]);
+    let calculated_hash = crc32::checksum_ieee(&raw_frame_data[..frame_end - 4]);
     if read_hash != calculated_hash {
         eprintln!("Hashes differ: {} != {}", read_hash, calculated_hash);
     }
@@ -181,11 +190,11 @@ fn decode_frame(f: Frame) -> Option<(u64, Vec<Vec<u8>>)> {
         if packet_offset >= frame_end - 2 {
             break;
         }
-        let len = BigEndian::read_u16(&raw_frame_data[packet_offset..packet_offset+2]);
+        let len = BigEndian::read_u16(&raw_frame_data[packet_offset..packet_offset + 2]);
         if len == 0 {
             break;
         }
-        let packet = raw_frame_data[packet_offset+2..packet_offset+2+len as usize].to_vec();
+        let packet = raw_frame_data[packet_offset + 2..packet_offset + 2 + len as usize].to_vec();
         packets.push(packet);
         packet_offset += 2 + len as usize
     }
@@ -243,7 +252,9 @@ fn handle_1_1_udp(
             if remote != src_addr {
                 eprintln!("WARNING: remote {} != {}", remote, src_addr);
             }
-            in_tx.send(buf[..std::cmp::min(num_bytes, buf.len())].to_vec()).unwrap();
+            in_tx
+                .send(buf[..std::cmp::min(num_bytes, buf.len())].to_vec())
+                .unwrap();
         });
     });
     (out_tx, in_rx)
